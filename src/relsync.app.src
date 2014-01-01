@@ -1,0 +1,9 @@
+%% -*- erlang-indent-level: 4; indent-tabs-mode: nil; fill-column: 80 -*-
+
+{application, relsync,
+ [
+  {description, "Synchronize a release on a remote node"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [kernel, stdlib, getopt]}
+ ]}.

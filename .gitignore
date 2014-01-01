@@ -1,0 +1,6 @@
+*.beam
+*~
+ebin/
+deps/
+relsync
+.depsolver_plt
