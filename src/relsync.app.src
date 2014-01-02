@@ -5,5 +5,5 @@
   {description, "Synchronize a release on a remote node"},
   {vsn, "1"},
   {registered, []},
-  {applications, [kernel, stdlib, getopt]}
+  {applications, [kernel, stdlib, erlang, getopt]}
  ]}.

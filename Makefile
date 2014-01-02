@@ -1,5 +1,5 @@
 
-DIALYZER_OPTS = -Wrace_conditions -Wunderspecs
+DIALYZER_OPTS = -Wrace_conditions
 
 all: deps compile dialyzer
 
