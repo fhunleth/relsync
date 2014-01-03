@@ -11,7 +11,12 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, start_link/1, get_file_hashes/2]).
+-export([start_link/0, start_link/1,
+	 get_file_hashes/2,
+	 get_local_file_hashes/1,
+	 copy_file/3,
+	 rm_file/2,
+	 apply/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -29,6 +34,25 @@
 get_file_hashes(Node, Path) ->
     gen_server:call({?SERVER, Node}, {get_file_hashes, Path}).
 
+-spec get_local_file_hashes(string()) -> [{string(), binary()}].
+get_local_file_hashes(Path) ->
+    NormalizedPath = normalize_path(Path),
+    PrefixLength = length(NormalizedPath),
+    filelib:fold_files(NormalizedPath, ".*", true,
+		       fun(Y, Acc) -> [{lists:nthtail(PrefixLength, Y), hashfile(Y)} | Acc] end,
+		       []).
+
+-spec copy_file(atom(), string(), binary()) -> ok | {error, _}.
+copy_file(Node, Path, Contents) ->
+    gen_server:call({?SERVER, Node}, {copy_file, Path, Contents}).
+
+-spec rm_file(atom(), string()) -> ok | {error, _}.
+rm_file(Node, Path) ->
+    gen_server:call({?SERVER, Node}, {rm_file, Path}).
+
+-spec apply(atom(), function(), [term()]) -> {ok, _}.
+apply(Node, Fun, Args) ->
+    gen_server:call({?SERVER, Node}, {apply, Fun, Args}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -42,9 +66,7 @@ start_link() ->
 
 %% Starts the server on the specified remote node.
 start_link(Node) ->
-    io:format("Going to start a server on ~p~n", [Node]),
     Result = rpc:call(Node, gen_server, start, [{local, ?SERVER}, ?MODULE, [], []]),
-    io:format("Back with ~p~n", [Result]),
     case Result of
 	{ok, Pid} ->
 	    link(Pid)
@@ -67,7 +89,6 @@ start_link(Node) ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    io:format("Started target_syncer on node ~p~n", [node()]),
     {ok, #state{}}.
 
 %%--------------------------------------------------------------------
@@ -85,10 +106,18 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({get_file_hashes, Path}, _From, State) ->
-    FileOrdset = filelib:fold_files(Path, ".*", true,
-				    fun(Y, Acc) -> ordsets:add_element(hashfile(Y), Acc) end,
-				    ordsets:new()),
-    {reply, FileOrdset, State}.
+    Reply = get_local_file_hashes(Path),
+    {reply, Reply, State};
+handle_call({copy_file, Path, Contents}, _From, State) ->
+    ok = filelib:ensure_dir(Path),
+    Reply = file:write_file(Path, Contents),
+    {reply, Reply, State};
+handle_call({rm_file, Path}, _From, State) ->
+    Reply = file:delete(Path),
+    {reply, Reply, State};
+handle_call({apply, Fun, Args}, _From, State) ->
+    Reply = apply(Fun, Args),
+    {reply, {ok, Reply}, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -128,7 +157,6 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-    io:format("target_syncer:terminate~n"),
     ok.
 
 %%--------------------------------------------------------------------
@@ -145,7 +173,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec hashfile(string()) -> {string(), binary()}.
+-spec hashfile(string()) -> binary().
 hashfile(Filename) ->
     {ok, Data}=file:read_file(Filename),
-    {Filename, crypto:hash(sha, Data)}.
+    crypto:hash(sha, Data).
+
+-spec normalize_path(string()) -> string().
+normalize_path(Path) ->
+    case lists:last(Path) of
+	$/ -> Path;
+	_ -> Path ++ "/"
+    end.

@@ -32,8 +32,15 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+-spec start_child(atom()) ->
+			 {ok, undefined | pid()} | {ok, undefined | pid(), _} |
+			 {error, _}.
 start_child(Node) ->
-    io:format("start_child~n"),
+    % Make sure that the code is up to date on the remote
+    {Mod, Bin, File} = code:get_object_code(target_syncer),
+    {module, Mod} = rpc:call(Node, code, load_binary, [Mod, File, Bin], 5000),
+
+    % Start the supervisor
     AChild = {{target_syncer, Node},
 	      {target_syncer, start_link, [Node]},
 	      transient, 2000, worker, [target_syncer]},
@@ -57,7 +64,6 @@ start_child(Node) ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    io:format("Starting target_syncer_sup~n"),
     RestartStrategy = one_for_one,
     MaxRestarts = 1000,
     MaxSecondsBetweenRestarts = 3600,
