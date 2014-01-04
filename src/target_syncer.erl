@@ -13,10 +13,12 @@
 %% API
 -export([start_link/0, start_link/1,
 	 get_file_hashes/2,
+	 set_hooks/2,
 	 get_local_file_hashes/1,
 	 copy_file/3,
 	 rm_file/2,
-	 apply/3]).
+	 notify_presync/1,
+	 notify_postsync/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -24,7 +26,10 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+	  % hooks holds the module name that provides an alternative
+	  % implementation to the default synchronization
+	  hooks}).
 
 %%%===================================================================
 %%% API
@@ -42,6 +47,26 @@ get_local_file_hashes(Path) ->
 		       fun(Y, Acc) -> [{lists:nthtail(PrefixLength, Y), hashfile(Y)} | Acc] end,
 		       []).
 
+% Use the specified Module to customize the behavior of the
+% synchronization process. The object code for the Module
+% is sent to the remote Node as well.
+-spec set_hooks(atom(), atom()) -> ok.
+set_hooks(Node, undefined) ->
+    gen_server:call({?SERVER, Node}, clear_hooks);
+set_hooks(Node, ModuleName) ->
+    {Module, Bin, File} = maybe_compile(ModuleName),
+    gen_server:call({?SERVER, Node}, {set_hooks, Module, Bin, File}).
+
+maybe_compile(ModuleName) ->
+    Module = list_to_atom(ModuleName),
+    case code:get_object_code(Module) of
+	{Module, Bin, File} ->
+	    {Module, Bin, File};
+	_ ->
+	    {ok, CompiledModule, Bin} = compile:file(ModuleName, [binary]),
+	    {CompiledModule, Bin, ModuleName}
+    end.
+
 -spec copy_file(atom(), string(), binary()) -> ok | {error, _}.
 copy_file(Node, Path, Contents) ->
     gen_server:call({?SERVER, Node}, {copy_file, Path, Contents}).
@@ -50,9 +75,17 @@ copy_file(Node, Path, Contents) ->
 rm_file(Node, Path) ->
     gen_server:call({?SERVER, Node}, {rm_file, Path}).
 
--spec apply(atom(), function(), [term()]) -> {ok, _}.
-apply(Node, Fun, Args) ->
-    gen_server:call({?SERVER, Node}, {apply, Fun, Args}).
+% Called to let the remote node know that a synchronization
+% run is coming.
+-spec notify_presync(atom()) -> ok.
+notify_presync(Node) ->
+    gen_server:call({?SERVER, Node}, notify_presync).
+
+% Called to let the remote node know that a synchronization
+% run has finished.
+-spec notify_postsync(atom()) -> ok.
+notify_postsync(Node) ->
+    gen_server:call({?SERVER, Node}, notify_postsync).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,6 +141,13 @@ init([]) ->
 handle_call({get_file_hashes, Path}, _From, State) ->
     Reply = get_local_file_hashes(Path),
     {reply, Reply, State};
+handle_call(clear_hooks, _From, State) ->
+    NewState = State#state{hooks=undefined},
+    {reply, ok, NewState};
+handle_call({set_hooks, Module, Bin, File}, _From, State) ->
+    code:load_binary(Module, File, Bin),
+    NewState = State#state{hooks=Module},
+    {reply, ok, NewState};
 handle_call({copy_file, Path, Contents}, _From, State) ->
     ok = filelib:ensure_dir(Path),
     Reply = file:write_file(Path, Contents),
@@ -115,9 +155,14 @@ handle_call({copy_file, Path, Contents}, _From, State) ->
 handle_call({rm_file, Path}, _From, State) ->
     Reply = file:delete(Path),
     {reply, Reply, State};
-handle_call({apply, Fun, Args}, _From, State) ->
-    Reply = apply(Fun, Args),
-    {reply, {ok, Reply}, State}.
+handle_call(notify_presync, _From, State) ->
+    #state{hooks=Hooks} = State,
+    call_hook_or_not(Hooks, presync),
+    {reply, ok, State};
+handle_call(notify_postsync, _From, State) ->
+    #state{hooks=Hooks} = State,
+    call_hook_or_not(Hooks, postsync),
+    {reply, ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -184,3 +229,11 @@ normalize_path(Path) ->
 	$/ -> Path;
 	_ -> Path ++ "/"
     end.
+
+%%-spec call_hook_or_not(atom(), atom()) ->
+call_hook_or_not(undefined, presync) ->
+    ok;
+call_hook_or_not(undefined, postsync) ->
+    ok;
+call_hook_or_not(M, F) ->
+    M:F().

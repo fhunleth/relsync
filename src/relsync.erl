@@ -52,10 +52,17 @@ update_node([Node|T], Options) ->
     {ok, _} = target_syncer_sup:start_child(Node),
     DestPath = proplists:get_value(destpath, Options),
     LocalPath = proplists:get_value(localpath, Options),
+    Hooks = proplists:get_value(hooks, Options),
+    ok = target_syncer:set_hooks(Node, Hooks),
+
+    ok = target_syncer:notify_presync(Node),
+
     DestFileHashes = target_syncer:get_file_hashes(Node, DestPath),
     LocalFileHashes = target_syncer:get_local_file_hashes(LocalPath),
     synchronize_node(Node, LocalPath, LocalFileHashes, DestPath, DestFileHashes),
-    update_node(T, Options).
+    update_node(T, Options),
+
+    ok = target_syncer:notify_postsync(Node).
 
 -spec normalize_path(string()) -> string().
 normalize_path(Path) ->
@@ -109,8 +116,8 @@ option_spec_list() ->
      {destnode,    $d,       "destnode",    {string, "node@other"}, "Destination node"},
      {destpath,    $p,       "destpath",    {string, "/sys/erlang"},"Path to release on the destination"},
      {localpath,   $l,       "localpath",   {string, "./_rel"},     "Path to local release"},
-     {script,      $s,       "script",      {string, "./relsync.script"}, "Script to run on the destination"},
+     {hooks,       $h,       "hooks",       string, "Erlang module containing hooks to run on the destination"},
      {cookie,      $c,       "cookie",      {string, "cookie"}, "Erlang magic cookie to use"},
-     {sname,       $n,       "sname",       string, "Short name for the local node"},
-     {name,        $m,       "name",        string, "Long name for the local node"}
+     {sname,       $s,       "sname",       string, "Short name for the local node"},
+     {name,        $n,       "name",        string, "Long name for the local node"}
      ].
