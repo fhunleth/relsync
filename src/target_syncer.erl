@@ -151,6 +151,7 @@ handle_call({set_hooks, Module, Bin, File}, _From, State) ->
 handle_call({copy_file, Path, Contents}, _From, State) ->
     ok = filelib:ensure_dir(Path),
     Reply = file:write_file(Path, Contents),
+    maybe_update_beam(Path),
     {reply, Reply, State};
 handle_call({rm_file, Path}, _From, State) ->
     Reply = file:delete(Path),
@@ -237,3 +238,28 @@ call_hook_or_not(undefined, postsync) ->
     ok;
 call_hook_or_not(M, F) ->
     M:F().
+
+maybe_update_beam(Path) ->
+    case filename:extension(Path) of
+	".beam" ->
+	    update_beam(Path);
+	_ ->
+	    ok
+    end.
+
+update_beam(Path) ->
+    Module = list_to_atom(filename:rootname(filename:basename(Path))),
+    case code:which(Module) of
+	non_existing ->
+	    % Code not loaded yet. Let the VM load it on demand.
+	    ok;
+	Path ->
+	    % Updating code that has been loaded
+	    io:format("Reloading ~p...~n", [Module]),
+	    code:purge(Module),
+	    code:load_file(Path);
+	Filename when is_binary(Filename) orelse is_list(Filename) ->
+	    % Same module, but different location. Not sure what to do.
+	    io:format("Confused. Module was originally loaded from ~p, but similar name is at ~p~n", [Filename, Path]),
+	    ok
+    end.

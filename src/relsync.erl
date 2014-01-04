@@ -114,7 +114,7 @@ option_spec_list() ->
     [
      %% {Name,     ShortOpt, LongOpt,       ArgSpec,    HelpMsg}
      {destnode,    $d,       "destnode",    {string, "node@other"}, "Destination node"},
-     {destpath,    $p,       "destpath",    {string, "/sys/erlang"},"Path to release on the destination"},
+     {destpath,    $p,       "destpath",    {string, "/srv/erlang"},"Path to release on the destination"},
      {localpath,   $l,       "localpath",   {string, "./_rel"},     "Path to local release"},
      {hooks,       $h,       "hooks",       string, "Erlang module containing hooks to run on the destination"},
      {cookie,      $c,       "cookie",      {string, "cookie"}, "Erlang magic cookie to use"},
