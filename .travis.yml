@@ -1,4 +1,4 @@
-language: english
+language: erlang
 notifications:
     recipients:
       - fhunleth@troodon-software.com
