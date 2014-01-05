@@ -1,0 +1,5 @@
+language: english
+notifications:
+    email: fhunleth@troodon-software.com
+otp_release:
+    - R16B02
