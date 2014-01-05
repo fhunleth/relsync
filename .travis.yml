@@ -1,5 +1,6 @@
 language: english
 notifications:
-    email: fhunleth@troodon-software.com
+    recipients:
+      - fhunleth@troodon-software.com
 otp_release:
-    - R16B02
+    - R16B
