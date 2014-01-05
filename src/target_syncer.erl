@@ -257,7 +257,7 @@ update_beam(Path) ->
 	    % Updating code that has been loaded
 	    io:format("Reloading ~p...~n", [Module]),
 	    code:purge(Module),
-	    code:load_file(Path);
+	    {module, Module} = code:load_file(Module);
 	Filename when is_binary(Filename) orelse is_list(Filename) ->
 	    % Same module, but different location. Not sure what to do.
 	    io:format("Confused. Module was originally loaded from ~p, but similar name is at ~p~n", [Filename, Path]),
