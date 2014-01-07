@@ -48,9 +48,11 @@ To install, copy the `relsync` output to anywhere convenient in your `$PATH`.
 ## Hooks
 
 Relsync will look for the module specified by `--hooks` parameter and if it
-isn't found, it will look for a `.erl` file of the same name and use it.
+isn't found, it will look for a `.erl` file of the same name and use it. The
+code in the module is run on the destination node.
 
-Here's an example:
+The following example hooks kill one of the ports so that it can be updated. 
+It also remounts the filesystem so that it is writable and can receive the updates.
 
 ```erlang
 -module(relsync_hooks).
