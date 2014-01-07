@@ -7,10 +7,9 @@ main(CmdLine) ->
     OptSpecList = option_spec_list(),
     case getopt:parse(OptSpecList, CmdLine) of
 	{ok, {Options, _NonOptArgs}} ->
-	    io:format("Options were: ~p~n", [Options]),
 	    target_syncer_sup:start_link(),
-	    setup_networking(Options),
-	    update_nodes(Options),
+	    ok = setup_local_node(Options),
+	    ok = update_nodes(Options),
 	    ok;
 	{error, {Reason, Data}} ->
 	    io:format("Error: ~s ~p~n~n", [Reason, Data]),
@@ -18,38 +17,63 @@ main(CmdLine) ->
     end.
 
 
-%% Set ourselves up as an Erlang node and connect to the destination
--spec setup_networking([term()]) -> ok.
-setup_networking(Options) ->
-    set_node_name(Options),
-    Cookie = proplists:get_value(cookie, Options),
-    erlang:set_cookie(node(), list_to_atom(Cookie)),
-    DestNode = list_to_atom(proplists:get_value(destnode, Options)),
-    pong = net_adm:ping(DestNode),
-    ok.
+%% Use the command line parameters to setup the local
+%% Erlang instance to be able to talk to remote nodes.
+-spec setup_local_node([term()]) -> ok.
+setup_local_node(Options) ->
+    % First, make sure that Epmd is running
+    case net_adm:names() of
+	{ok, _} -> %% Epmd is running
+	    ok;
+	{error, address} ->
+	    Epmd = os:find_executable("epmd"),
+	    os:cmd(Epmd ++ " -daemon")
+    end,
 
--spec set_node_name([term()]) -> ok.
-set_node_name(Options) ->
+    % Next, start up net_kernel
+    case net_kernel:start(options_to_netkernel(Options)) of
+	{ok, _} ->
+	    case is_alive() of
+		true ->
+		    Cookie = proplists:get_value(cookie, Options),
+		    erlang:set_cookie(node(), list_to_atom(Cookie)),
+		    ok;
+		false ->
+		    {error, set_cookie}
+	    end;
+	{error, Reason} ->
+	    {error, net_kernel, Reason}
+    end.
+
+-spec options_to_netkernel([term()]) -> [atom()].
+options_to_netkernel(Options) ->
     case proplists:get_value(sname, Options) of
 	undefined ->
 	    case proplists:get_value(name, Options) of
 		undefined ->
-		    io:format("Error: need to specify --sname or --name~n"),
-		    exit(badargs);
+		    exit({badargs, "Specify --sname or --name"});
 		Name ->
-		    {ok, _} = net_kernel:start([list_to_atom(Name), longnames])
+		    [list_to_atom(Name), longnames]
 	    end;
 	SName ->
-	    {ok, _} = net_kernel:start([list_to_atom(SName), shortnames])
-    end,
-    ok.
+	    [list_to_atom(SName), shortnames]
+    end.
 
 update_nodes(Options) ->
-    update_node(nodes(), Options).
+    % Only support one node for now.
+    DestNode = proplists:get_value(destnode, Options),
+    update_node([list_to_atom(DestNode)], Options).
 update_node([], _Options) ->
     ok;
 update_node([Node|T], Options) ->
+    % Ping the node to make sure that it is connected
+    io:format("Updating ~p...~n", [Node]),
+    pong = net_adm:ping(Node),
+
+    % Start up the remote syncer
     {ok, _} = target_syncer_sup:start_child(Node),
+
+    % Start syncing
     DestPath = proplists:get_value(destpath, Options),
     LocalPath = proplists:get_value(localpath, Options),
     Hooks = proplists:get_value(hooks, Options),
