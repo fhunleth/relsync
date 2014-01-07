@@ -254,10 +254,15 @@ update_beam(Path) ->
 	    % Code not loaded yet. Let the VM load it on demand.
 	    ok;
 	Path ->
-	    % Updating code that has been loaded
-	    io:format("Reloading ~p...~n", [Module]),
-	    code:purge(Module),
-	    {module, Module} = code:load_file(Module);
+	    case code:is_sticky(Module) of
+		true ->
+		    io:format("Not reloading sticky module ~p.~n", [Module]);
+		false ->
+		    % Updating code that has been loaded
+		    io:format("Reloading ~p...~n", [Module]),
+		    code:purge(Module),
+		    {module, Module} = code:load_file(Module)
+	    end;
 	Filename when is_binary(Filename) orelse is_list(Filename) ->
 	    % Same module, but different location. Not sure what to do.
 	    io:format("Confused. Module was originally loaded from ~p, but similar name is at ~p~n", [Filename, Path]),
