@@ -81,9 +81,9 @@ update_node([Node|T], Options) ->
 
     ok = target_syncer:notify_presync(Node),
 
-    DestFileHashes = target_syncer:get_file_hashes(Node, DestPath),
-    LocalFileHashes = target_syncer:get_local_file_hashes(LocalPath),
-    synchronize_node(Node, LocalPath, LocalFileHashes, DestPath, DestFileHashes),
+    DestFileInfos = target_syncer:get_file_listing(Node, DestPath),
+    LocalFileInfos = target_syncer:get_local_file_listing(LocalPath),
+    synchronize_node(Node, LocalPath, LocalFileInfos, DestPath, DestFileInfos),
     update_node(T, Options),
 
     ok = target_syncer:notify_postsync(Node).
@@ -95,39 +95,42 @@ normalize_path(Path) ->
 	_ -> Path ++ "/"
     end.
 
--spec synchronize_node(atom(), string(),  [{string(), binary()}], string(), [{string(), binary()}]) -> ok.
-synchronize_node(Node, LocalPath, LocalFileHashes, DestPath, DestFileHashes) ->
-    SortedLocalHashes = lists:sort(LocalFileHashes),
-    SortedDestHashes = lists:sort(DestFileHashes),
-    sync_files(Node, normalize_path(LocalPath), SortedLocalHashes, normalize_path(DestPath), SortedDestHashes).
+-spec synchronize_node(atom(), string(),  [{string(), {integer(),binary()}}], string(), [{string(), {integer(),binary()}}]) -> ok.
+synchronize_node(Node, LocalPath, LocalFileInfos, DestPath, DestFileInfos) ->
+    SortedLocalInfos = lists:sort(LocalFileInfos),
+    SortedDestInfos = lists:sort(DestFileInfos),
+    sync_files(Node, normalize_path(LocalPath), SortedLocalInfos, normalize_path(DestPath), SortedDestInfos).
 
--spec sync_files(atom(), string(), [{string(), binary()}], string(), [{string(), binary()}]) -> ok.
+-spec sync_files(atom(), string(), [{string(), {integer(),binary()}}], string(), [{string(), {integer(),binary()}}]) -> ok.
 sync_files(_Node, _LocalPath, [], _DestPath, []) -> ok;
-sync_files(Node, LocalPath, [{LocalFile,_LocalHash} | LTail], DestPath, []) ->
+sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, []) ->
     io:format("Creating ~p on ~p...~n", [LocalFile, Node]),
     {ok, Contents} = file:read_file(LocalPath ++ LocalFile),
-    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Contents),
+    {Mode,_} = LocalInfo,
+    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Mode, Contents),
     sync_files(Node, LocalPath, LTail, DestPath, []);
-sync_files(Node, LocalPath, [], DestPath, [{DestFile,_DestHash} | DTail]) ->
+sync_files(Node, LocalPath, [], DestPath, [{DestFile,_DestInfo} | DTail]) ->
     io:format("Deleting ~p from ~p...~n", [DestFile, Node]),
     target_syncer:rm_file(Node, DestPath ++ DestFile),
     sync_files(Node, LocalPath, [], DestPath, DTail);
-sync_files(Node, LocalPath, [{LocalFile,LocalHash} | LTail], DestPath, [{DestFile,DestHash} | DTail]) when LocalFile =:= DestFile, LocalHash =:= DestHash ->
+sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, [{DestFile,DestInfo} | DTail]) when LocalFile =:= DestFile, LocalInfo =:= DestInfo ->
     sync_files(Node, LocalPath, LTail, DestPath, DTail);
-sync_files(Node, LocalPath, [{LocalFile,LocalHash} | LTail], DestPath, [{DestFile,DestHash} | DTail]) when LocalFile =:= DestFile, LocalHash =/= DestHash ->
+sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, [{DestFile,DestInfo} | DTail]) when LocalFile =:= DestFile, LocalInfo =/= DestInfo ->
     io:format("Updating ~p on ~p...~n", [LocalFile, Node]),
     {ok, Contents} = file:read_file(LocalPath ++ LocalFile),
-    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Contents),
+    {Mode,_} = LocalInfo,
+    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Mode, Contents),
     sync_files(Node, LocalPath, LTail, DestPath, DTail);
-sync_files(Node, LocalPath, [{LocalFile,LocalHash} | LTail], DestPath, [{DestFile,_DestHash} | DTail]) when LocalFile > DestFile ->
+sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, [{DestFile,_DestInfo} | DTail]) when LocalFile > DestFile ->
     io:format("Deleting ~p from ~p...~n", [DestFile, Node]),
     target_syncer:rm_file(Node, DestPath ++ DestFile),
-    sync_files(Node, LocalPath, [{LocalFile,LocalHash} | LTail], DestPath, DTail);
-sync_files(Node, LocalPath, [{LocalFile,_LocalHash} | LTail], DestPath, [{DestFile,DestHash} | DTail]) when LocalFile < DestFile ->
+    sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, DTail);
+sync_files(Node, LocalPath, [{LocalFile,LocalInfo} | LTail], DestPath, [{DestFile,DestInfo} | DTail]) when LocalFile < DestFile ->
     io:format("Creating ~p on ~p...~n", [LocalFile, Node]),
     {ok, Contents} = file:read_file(LocalPath ++ LocalFile),
-    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Contents),
-    sync_files(Node, LocalPath, LTail, DestPath, [{DestFile,DestHash} | DTail]).
+    {Mode,_} = LocalInfo,
+    ok = target_syncer:copy_file(Node, DestPath ++ LocalFile, Mode, Contents),
+    sync_files(Node, LocalPath, LTail, DestPath, [{DestFile,DestInfo} | DTail]).
 
 -spec usage() -> ok.
 usage() ->

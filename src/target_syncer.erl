@@ -7,15 +7,16 @@
 %%% Created :  1 Jan 2014 by Frank Hunleth <fhunleth@troodon-software.com>
 %%%-------------------------------------------------------------------
 -module(target_syncer).
+-include_lib("kernel/include/file.hrl").
 
 -behaviour(gen_server).
 
 %% API
 -export([start_link/0, start_link/1,
-	 get_file_hashes/2,
+	 get_file_listing/2,
 	 set_hooks/2,
-	 get_local_file_hashes/1,
-	 copy_file/3,
+	 get_local_file_listing/1,
+	 copy_file/4,
 	 rm_file/2,
 	 notify_presync/1,
 	 notify_postsync/1]).
@@ -35,16 +36,16 @@
 %%% API
 %%%===================================================================
 
--spec get_file_hashes(atom(), string()) -> [{string(), binary()}].
-get_file_hashes(Node, Path) ->
-    gen_server:call({?SERVER, Node}, {get_file_hashes, Path}).
+-spec get_file_listing(atom(), string()) -> [{string(), {integer(),binary()}}].
+get_file_listing(Node, Path) ->
+    gen_server:call({?SERVER, Node}, {get_file_listing, Path}).
 
--spec get_local_file_hashes(string()) -> [{string(), binary()}].
-get_local_file_hashes(Path) ->
+-spec get_local_file_listing(string()) -> [{string(), {integer(), binary()}}].
+get_local_file_listing(Path) ->
     NormalizedPath = normalize_path(Path),
     PrefixLength = length(NormalizedPath),
     filelib:fold_files(NormalizedPath, ".*", true,
-		       fun(Y, Acc) -> [{lists:nthtail(PrefixLength, Y), hashfile(Y)} | Acc] end,
+		       fun(Y, Acc) -> [{lists:nthtail(PrefixLength, Y), file_info(Y)} | Acc] end,
 		       []).
 
 % Use the specified Module to customize the behavior of the
@@ -67,9 +68,9 @@ maybe_compile(ModuleName) ->
 	    {CompiledModule, Bin, ModuleName}
     end.
 
--spec copy_file(atom(), string(), binary()) -> ok | {error, _}.
-copy_file(Node, Path, Contents) ->
-    gen_server:call({?SERVER, Node}, {copy_file, Path, Contents}).
+-spec copy_file(atom(), string(), integer(), binary()) -> ok | {error, _}.
+copy_file(Node, Path, Mode, Contents) ->
+    gen_server:call({?SERVER, Node}, {copy_file, Path, Mode, Contents}).
 
 -spec rm_file(atom(), string()) -> ok | {error, _}.
 rm_file(Node, Path) ->
@@ -138,8 +139,8 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({get_file_hashes, Path}, _From, State) ->
-    Reply = get_local_file_hashes(Path),
+handle_call({get_file_listing, Path}, _From, State) ->
+    Reply = get_local_file_listing(Path),
     {reply, Reply, State};
 handle_call(clear_hooks, _From, State) ->
     NewState = State#state{hooks=undefined},
@@ -148,11 +149,12 @@ handle_call({set_hooks, Module, Bin, File}, _From, State) ->
     code:load_binary(Module, File, Bin),
     NewState = State#state{hooks=Module},
     {reply, ok, NewState};
-handle_call({copy_file, Path, Contents}, _From, State) ->
+handle_call({copy_file, Path, Mode, Contents}, _From, State) ->
     ok = filelib:ensure_dir(Path),
-    Reply = file:write_file(Path, Contents),
+    ok = file:write_file(Path, Contents),
+    ok = file:change_mode(Path, Mode),
     maybe_update_beam(Path),
-    {reply, Reply, State};
+    {reply, ok, State};
 handle_call({rm_file, Path}, _From, State) ->
     Reply = file:delete(Path),
     {reply, Reply, State};
@@ -219,10 +221,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec hashfile(string()) -> binary().
-hashfile(Filename) ->
+-spec file_info(string()) -> {integer(), binary()}.
+file_info(Filename) ->
     {ok, Data}=file:read_file(Filename),
-    crypto:hash(sha, Data).
+    Hash = crypto:hash(sha, Data),
+
+    {ok, #file_info{mode = Mode}} = file:read_file_info(Filename),
+    {Mode, Hash}.
 
 -spec normalize_path(string()) -> string().
 normalize_path(Path) ->
