@@ -12,7 +12,10 @@ their target hardware. It probably can be used in other scenarios, but
 other tools like [sync](https://github.com/rustyio/sync) may be easier
 to use. The advantage to using `relsync` is that it copies ports over
 as well and let's you add scripts to perform custom reloading or run
-other code needed to update the remote filesystem.
+other code needed to update the remote filesystem. In fact, it
+synchronizes almost everything that's safe to synchronize. Shared
+libraries (.so) are one of the main exceptions. Ports can be syncronized
+so long as they are stopped in the presync part of the script.
 
 Here's an example usage to synchronize the release in the `_rel` directory
 with a remote node on a Beaglebone. Note that the remote node has to already
@@ -61,15 +64,15 @@ It also remounts the filesystem so that it is writable and can receive the updat
 
 presync() ->
     io:format("Got a presync~n"),
-    % Need to kill the ports to update them.
-    os:cmd("killall gpio_port"),
 
-    % Mount read-write so that we can update files
-    mount:remount("/", [rw]).
+    % Stop the application so that any active ports are
+    % exited. This is needed or relsync won't be able to update
+    % the binary.
+    application:stop(myapp).
 
 postsync() ->
     io:format("Got a postsync~n"),
-    % Remount as read-only so that the system
-    % is like it normally is.
-    mount:remount("/", [ro]).
+
+    % Start the app back up
+    application:start(myapp).
 ```

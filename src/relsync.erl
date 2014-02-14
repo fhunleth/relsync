@@ -84,9 +84,11 @@ update_node([Node|T], Options) ->
     DestFileInfos = target_syncer:get_file_listing(Node, DestPath),
     LocalFileInfos = target_syncer:get_local_file_listing(LocalPath),
     synchronize_node(Node, LocalPath, LocalFileInfos, DestPath, DestFileInfos),
-    update_node(T, Options),
+    ok = target_syncer:notify_postsync(Node),
 
-    ok = target_syncer:notify_postsync(Node).
+    % Do the next node.
+    update_node(T, Options).
+
 
 -spec normalize_path(string()) -> string().
 normalize_path(Path) ->
@@ -95,10 +97,20 @@ normalize_path(Path) ->
 	_ -> Path ++ "/"
     end.
 
+% Return true if this is a safe file to synchronize
+-spec safe_file({string(), {integer(),binary()}}) -> true | false.
+safe_file({Filename,_Info}) ->
+    filename:extension(Filename) =/= ".so".
+
+% Synchronize the nodes by taking the local and remote file
+% lists, filtering and sorting them, and then comparing them
+% one by one to make sure that both sides are in sync.
 -spec synchronize_node(atom(), string(),  [{string(), {integer(),binary()}}], string(), [{string(), {integer(),binary()}}]) -> ok.
 synchronize_node(Node, LocalPath, LocalFileInfos, DestPath, DestFileInfos) ->
-    SortedLocalInfos = lists:sort(LocalFileInfos),
-    SortedDestInfos = lists:sort(DestFileInfos),
+    FilteredLocalInfos = lists:filter(fun safe_file/1, LocalFileInfos),
+    SortedLocalInfos = lists:sort(FilteredLocalInfos),
+    FilteredDestInfos = lists:filter(fun safe_file/1, DestFileInfos),
+    SortedDestInfos = lists:sort(FilteredDestInfos),
     sync_files(Node, normalize_path(LocalPath), SortedLocalInfos, normalize_path(DestPath), SortedDestInfos).
 
 -spec sync_files(atom(), string(), [{string(), {integer(),binary()}}], string(), [{string(), {integer(),binary()}}]) -> ok.

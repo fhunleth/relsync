@@ -1,7 +1,7 @@
 
 DIALYZER_OPTS = -Wrace_conditions
 
-all: deps compile dialyzer
+all: deps compile
 
 deps:
 	rebar get-deps
