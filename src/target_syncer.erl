@@ -1,11 +1,21 @@
-%%%-------------------------------------------------------------------
-%%% @author Frank Hunleth <fhunleth@troodon-software.com>
-%%% @copyright (C) 2014, Frank Hunleth
+%%   Copyright 2014 Frank Hunleth
+%%
+%%   Licensed under the Apache License, Version 2.0 (the "License");
+%%   you may not use this file except in compliance with the License.
+%%   You may obtain a copy of the License at
+%%
+%%       http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%   Unless required by applicable law or agreed to in writing, software
+%%   distributed under the License is distributed on an "AS IS" BASIS,
+%%   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%   See the License for the specific language governing permissions and
+%%   limitations under the License.
+
 %%% @doc
-%%%
+%%%  This module is sent to the target device to scan files locally and
+%%%  implement the updates as requested by the host device running relsync.
 %%% @end
-%%% Created :  1 Jan 2014 by Frank Hunleth <fhunleth@troodon-software.com>
-%%%-------------------------------------------------------------------
 -module(target_syncer).
 -include_lib("kernel/include/file.hrl").
 
@@ -18,6 +28,7 @@
 	 get_local_file_listing/1,
 	 copy_file/4,
 	 rm_file/2,
+	 create_symlink_mirror/3,
 	 notify_presync/1,
 	 notify_postsync/1]).
 
@@ -40,11 +51,12 @@
 get_file_listing(Node, Path) ->
     gen_server:call({?SERVER, Node}, {get_file_listing, Path}).
 
+% Traverse the directory specified by path and return the list of files
+% with their info.
 -spec get_local_file_listing(string()) -> [{string(), {integer(), binary()}}].
 get_local_file_listing(Path) ->
-    NormalizedPath = normalize_path(Path),
-    PrefixLength = length(NormalizedPath),
-    filelib:fold_files(NormalizedPath, ".*", true,
+    PrefixLength = length(Path),
+    filelib:fold_files(Path, ".*", true,
 		       fun(Y, Acc) -> [{lists:nthtail(PrefixLength, Y), file_info(Y)} | Acc] end,
 		       []).
 
@@ -68,13 +80,22 @@ maybe_compile(ModuleName) ->
 	    {CompiledModule, Bin, ModuleName}
     end.
 
+% Copy the Contents to the file specified by Path on Node, and
+% then set the mode to Mode.
 -spec copy_file(atom(), string(), integer(), binary()) -> ok | {error, _}.
 copy_file(Node, Path, Mode, Contents) ->
     gen_server:call({?SERVER, Node}, {copy_file, Path, Mode, Contents}).
 
+% Remove the specified file from Node
 -spec rm_file(atom(), string()) -> ok | {error, _}.
 rm_file(Node, Path) ->
     gen_server:call({?SERVER, Node}, {rm_file, Path}).
+
+% Create a symlink mirror of all files in Path in NewPath,
+% but only if NewPath doesn't exist.
+-spec create_symlink_mirror(atom(), string(), string())-> ok | {error, _}.
+create_symlink_mirror(Node, Path, NewPath) ->
+    gen_server:call({?SERVER, Node}, {create_symlink_mirror, Path, NewPath}).
 
 % Called to let the remote node know that a synchronization
 % run is coming.
@@ -151,9 +172,26 @@ handle_call({set_hooks, Module, Bin, File}, _From, State) ->
     {reply, ok, NewState};
 handle_call({copy_file, Path, Mode, Contents}, _From, State) ->
     ok = filelib:ensure_dir(Path),
+    % delete the file first so that we write to a new inode. This is needed
+    % for symlink mirrors, but also more gracefully handles the case where
+    % someone else has the file opened.
+    file:delete(Path),
     ok = file:write_file(Path, Contents),
     ok = file:change_mode(Path, Mode),
     maybe_update_beam(Path),
+    {reply, ok, State};
+handle_call({create_symlink_mirror, Path, NewPath}, _From, State) ->
+    case filelib:is_dir(NewPath) of
+	false ->
+	    ok = filelib:ensure_dir(NewPath),
+	    FromFiles = get_local_file_listing(Path),
+	    [ ok = symlink_files(Path ++ File, NewPath ++ File) || {File, _} <- FromFiles ],
+	    % Update Erlang's search paths to look in the mirror location now.
+	    ok = update_code_paths(Path, NewPath);
+	true ->
+	    % Don't do anything, since the mirror already exists.
+	    ok
+    end,
     {reply, ok, State};
 handle_call({rm_file, Path}, _From, State) ->
     Reply = file:delete(Path),
@@ -223,18 +261,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 -spec file_info(string()) -> {integer(), binary()}.
 file_info(Filename) ->
-    {ok, Data}=file:read_file(Filename),
+    {ok, Data} = file:read_file(Filename),
     Hash = crypto:hash(sha, Data),
 
     {ok, #file_info{mode = Mode}} = file:read_file_info(Filename),
     {Mode, Hash}.
-
--spec normalize_path(string()) -> string().
-normalize_path(Path) ->
-    case lists:last(Path) of
-	$/ -> Path;
-	_ -> Path ++ "/"
-    end.
 
 %%-spec call_hook_or_not(atom(), atom()) ->
 call_hook_or_not(undefined, presync) ->
@@ -258,7 +289,10 @@ update_beam(Path) ->
 	non_existing ->
 	    % Code not loaded yet. Let the VM load it on demand.
 	    ok;
-	Path ->
+	_ ->
+	    % NOTE: we don't check whether the old path (from code:which/1)
+            % is the same as the new Path. Symlink mirroring would fail this even
+            % though it is ok, but in general, we don't police module naming collisions.
 	    case code:is_sticky(Module) of
 		true ->
 		    io:format("Not reloading sticky module ~p.~n", [Module]);
@@ -267,9 +301,25 @@ update_beam(Path) ->
 		    io:format("Reloading ~p...~n", [Module]),
 		    code:purge(Module),
 		    {module, Module} = code:load_file(Module)
-	    end;
-	Filename when is_binary(Filename) orelse is_list(Filename) ->
-	    % Same module, but different location. Not sure what to do.
-	    io:format("Confused. Module was originally loaded from ~p, but similar name is at ~p~n", [Filename, Path]),
-	    ok
+	    end
     end.
+
+symlink_files(From, To) ->
+    filelib:ensure_dir(To),
+    file:make_symlink(From, To).
+
+replace_prefix(Path, From, To) ->
+    case lists:prefix(From, Path) of
+	false ->
+	    % Not affected, so don't update.
+	    Path;
+	true ->
+	    To ++ lists:nthtail(length(From), Path)
+    end.
+
+% Update the Erlang VM's code search path to the new directory prefix.
+% This is called after mirroring the directory so that we can write to it.
+update_code_paths(From, To) ->
+    NewPaths = [ replace_prefix(Path, From, To) || Path <- code:get_path() ],
+    true = code:set_path(NewPaths),
+    ok.

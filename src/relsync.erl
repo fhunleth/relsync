@@ -1,3 +1,20 @@
+%%   Copyright 2014 Frank Hunleth
+%%
+%%   Licensed under the Apache License, Version 2.0 (the "License");
+%%   you may not use this file except in compliance with the License.
+%%   You may obtain a copy of the License at
+%%
+%%       http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%   Unless required by applicable law or agreed to in writing, software
+%%   distributed under the License is distributed on an "AS IS" BASIS,
+%%   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%   See the License for the specific language governing permissions and
+%%   limitations under the License.
+
+%%% @doc
+%%%  This is the script that runs the relsync logic on the host.
+%%% @end
 -module(relsync).
 
 -export([main/1]).
@@ -60,7 +77,8 @@ options_to_netkernel(Options) ->
     end.
 
 update_nodes(Options) ->
-    % Only support one node for now.
+    % Only support one node for now. In theory, we could update
+    % a swarm of devices. That would be wild.
     DestNode = proplists:get_value(destnode, Options),
     update_node([list_to_atom(DestNode)], Options).
 update_node([], _Options) ->
@@ -73,24 +91,34 @@ update_node([Node|T], Options) ->
     % Start up the remote syncer
     {ok, _} = target_syncer_sup:start_child(Node),
 
-    % Start syncing
-    DestPath = proplists:get_value(destpath, Options),
-    LocalPath = proplists:get_value(localpath, Options),
+    % Gather our options
+    DestPath = normalize_path(proplists:get_value(destpath, Options)),
+    DestRwPath = normalize_path(proplists:get_value(destrwpath, Options)),
+    LocalPath = normalize_path(proplists:get_value(localpath, Options)),
     Hooks = proplists:get_value(hooks, Options),
-    ok = target_syncer:set_hooks(Node, Hooks),
 
+    % Start syncing
+    ok = target_syncer:set_hooks(Node, Hooks),
     ok = target_syncer:notify_presync(Node),
 
-    DestFileInfos = target_syncer:get_file_listing(Node, DestPath),
+    DestPathToUse =
+	case DestRwPath of
+	    "" ->
+		DestPath;
+	    _ ->
+		ok = target_syncer:create_symlink_mirror(Node, DestPath, DestRwPath),
+		DestRwPath
+	end,
+    DestFileInfos = target_syncer:get_file_listing(Node, DestPathToUse),
     LocalFileInfos = target_syncer:get_local_file_listing(LocalPath),
-    synchronize_node(Node, LocalPath, LocalFileInfos, DestPath, DestFileInfos),
+    synchronize_node(Node, LocalPath, LocalFileInfos, DestPathToUse, DestFileInfos),
     ok = target_syncer:notify_postsync(Node),
 
     % Do the next node.
     update_node(T, Options).
 
-
 -spec normalize_path(string()) -> string().
+normalize_path("") -> "";
 normalize_path(Path) ->
     case lists:last(Path) of
 	$/ -> Path;
@@ -151,12 +179,13 @@ usage() ->
 -spec option_spec_list() -> [getopt:option_spec()].
 option_spec_list() ->
     [
-     %% {Name,     ShortOpt, LongOpt,       ArgSpec,    HelpMsg}
-     {destnode,    $d,       "destnode",    {string, "node@other"}, "Destination node"},
-     {destpath,    $p,       "destpath",    {string, "/srv/erlang"},"Path to release on the destination"},
-     {localpath,   $l,       "localpath",   {string, "./_rel"},     "Path to local release"},
-     {hooks,       $h,       "hooks",       string, "Erlang module containing hooks to run on the destination"},
-     {cookie,      $c,       "cookie",      {string, "cookie"}, "Erlang magic cookie to use"},
-     {sname,       $s,       "sname",       string, "Short name for the local node"},
-     {name,        $n,       "name",        string, "Long name for the local node"}
+     %% {Name,     ShortOpt, LongOpt,                ArgSpec,                HelpMsg}
+     {destnode,    $d,       "destination-node",    {string, "node@other"},  "Destination node"},
+     {destpath,    $p,       "destination-path",    {string, "/srv/erlang"}, "Path to release on the destination (Can be on a read-only filesystem)"},
+     {destrwpath,  $q,       "destination-rw-path", {string, ""},            "Path to writable location on the destination (empty if not needed)"},
+     {localpath,   $l,       "local-path",          {string, "./_rel"},      "Path to local release"},
+     {hooks,       $h,       "hooks",               string,                  "Erlang module containing hooks to run on the destination"},
+     {cookie,      $c,       "cookie",              {string, "cookie"},      "Erlang magic cookie to use"},
+     {sname,       $s,       "sname",               string,                  "Short name for the local node"},
+     {name,        $n,       "name",                string,                  "Long name for the local node"}
      ].

@@ -1,11 +1,22 @@
-%%%-------------------------------------------------------------------
-%%% @author Frank Hunleth <fhunleth@troodon-software.com>
-%%% @copyright (C) 2014, Frank Hunleth
+%%   Copyright 2014 Frank Hunleth
+%%
+%%   Licensed under the Apache License, Version 2.0 (the "License");
+%%   you may not use this file except in compliance with the License.
+%%   You may obtain a copy of the License at
+%%
+%%       http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%   Unless required by applicable law or agreed to in writing, software
+%%   distributed under the License is distributed on an "AS IS" BASIS,
+%%   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%   See the License for the specific language governing permissions and
+%%   limitations under the License.
+
 %%% @doc
-%%%
+%%%  This module provides a supervisor for the target_syncer
+%%%  module that does all of the syncing work on the remote.
 %%% @end
-%%% Created :  1 Jan 2014 by Frank Hunleth <fhunleth@troodon-software.com>
-%%%-------------------------------------------------------------------
+
 -module(target_syncer_sup).
 
 -behaviour(supervisor).

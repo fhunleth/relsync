@@ -18,10 +18,9 @@ libraries (.so) are one of the main exceptions. Ports can be syncronized
 so long as they are stopped in the presync part of the script.
 
 Here's an example usage to synchronize the release in the `_rel` directory
-with a remote node on a Beaglebone. Note that the remote node has to already
-have its name and cookie configured.
+with a remote node on a Beaglebone.
 
-    relsync --destnode testnode@beaglebone --hooks relsync_hooks.erl --cookie beagle --sname relsync
+    relsync --destination-node testnode@beaglebone --hooks relsync_hooks.erl --cookie beagle --sname relsync
 
 ## Building
 
@@ -29,24 +28,36 @@ Building is similar to other Erlang projects. Make sure `rebar` is in
 your path.
 
     git clone https://github.com/fhunleth/relsync.git
-	cd relsync
-	make
+    cd relsync
+    make
 
 To install, copy the `relsync` output to anywhere convenient in your `$PATH`.
 
 ## Usage
 
-    Usage: relsync [-d [<destnode>]] [-p [<destpath>]] [-l [<localpath>]]
-                   [-h <hooks>] [-c [<cookie>]] [-s <sname>] [-n <name>]
+```
+Usage: relsync [-d [<destnode>]] [-p [<destpath>]] [-q [<destrwpath>]]
+               [-l [<localpath>]] [-h <hooks>] [-c [<cookie>]]
+               [-s <sname>] [-n <name>]
 
-      -d, --destnode   Destination node [default: node@other]
-      -p, --destpath   Path to release on the destination [default:
-                       /srv/erlang]
-      -l, --localpath  Path to local release [default: ./_rel]
-      -h, --hooks      Erlang module containing hooks to run on the destination
-      -c, --cookie     Erlang magic cookie to use [default: cookie]
-      -s, --sname      Short name for the local node
-      -n, --name       Long name for the local node
+  -d, --destination-node     Destination node [default: node@other]
+  -p, --destination-path     Path to release on the destination (Can be on 
+                             a read-only filesystem) [default: /srv/erlang]
+  -q, --destination-rw-path  Path to writable location on the destination 
+                             (empty if not needed) [default: ]
+  -l, --local-path           Path to local release [default: ./_rel]
+  -h, --hooks                Erlang module containing hooks to run on the 
+                             destination
+  -c, --cookie               Erlang magic cookie to use [default: cookie]
+  -s, --sname                Short name for the local node
+  -n, --name                 Long name for the local node
+```
+
+## Target requirements
+
+Since `relsync` pushes the synchronization code over to the target, not much
+is needed. The target should have the `kernel`, `stdlib`, and `crypto`
+applications available.
 
 ## Hooks
 
@@ -54,7 +65,7 @@ Relsync will look for the module specified by `--hooks` parameter and if it
 isn't found, it will look for a `.erl` file of the same name and use it. The
 code in the module is run on the destination node.
 
-The following example hooks kill one of the ports so that it can be updated. 
+The following example hooks kill one of the ports so that it can be updated.
 It also remounts the filesystem so that it is writable and can receive the updates.
 
 ```erlang
