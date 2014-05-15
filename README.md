@@ -59,6 +59,13 @@ Since `relsync` pushes the synchronization code over to the target, not much
 is needed. The target should have the `kernel`, `stdlib`, and `crypto`
 applications available.
 
+If the target stores the Erlang applications on read-only filesystems, that's
+ok. Use the `-q` parameter to specify a writable filesystem to use and `relsync`
+will put the new files there and update the Erlang VM's search path to pick the
+new files up. The Erlang VM search path will no longer point to the original
+read-only filesystem location. Symlinks are used to point back to unmodified
+files.
+
 ## Hooks
 
 Relsync will look for the module specified by `--hooks` parameter and if it
