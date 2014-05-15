@@ -1,6 +1,13 @@
 language: erlang
 notifications:
     recipients:
-      - fhunleth@troodon-software.com
+        - fhunleth@troodon-software.com
 otp_release:
-    - R16B
+    - 17.0
+
+before_install:
+    - sudo hostname localhost
+
+script:
+    - make
+    - make test

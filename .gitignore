@@ -2,5 +2,7 @@
 *~
 ebin/
 deps/
+_rel
 relsync
 .depsolver_plt
+tests/work

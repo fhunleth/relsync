@@ -24,6 +24,9 @@ typer: $(DEPSOLVER_PLT)
 compile:
 	rebar compile escriptize
 
+test:
+	tests/test.sh
+
 clean:
 	rebar clean
 

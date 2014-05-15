@@ -1,0 +1,7 @@
+{application, testapp,
+ [
+  {description, "relsync test app"},
+  {vsn, "0.0.1"},
+  {applications, [ kernel, stdlib, crypto ] },
+  {mod, {testapp_app, []}}
+]}.
